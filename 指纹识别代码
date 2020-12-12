@@ -1,0 +1,197 @@
+
+/*识别指纹代码*/
+#include <Adafruit_Fingerprint.h>
+#include <U8glib.h>
+#define INTERVAL_LCD             20             //定义OLED刷新时间间隔  
+unsigned long lcd_time = millis();                 //OLED刷新时间计时器
+U8GLIB_SSD1306_128X64 u8g(U8G_I2C_OPT_NONE);     //设置OLED型号  
+//-------字体设置，大、中、小
+#define setFont_L u8g.setFont(u8g_font_7x13)
+#define setFont_M u8g.setFont(u8g_font_fixed_v0r)
+#define setFont_S u8g.setFont(u8g_font_fixed_v0r)
+#define setFont_SS u8g.setFont(u8g_font_fub25n)
+
+// UNO板没有硬件接口，我们必须使用软件接口
+// 指纹识别器与arduino的串口连接，接对发，发对接
+// As608的Rx接口为数据输入接口，与arduino板#7连接
+//As608的Tx接口为数据输出接口，与arduino板#6连接
+
+SoftwareSerial mySerial(6, 7);
+int INA = 9;
+int INB = 8;
+/*这两个端口是与马达模块连接的，马达INA端接#9端口，INB端接#8端口，5V供电*/
+int START_LEVEL = 0;
+int END_LEVEL = 230;//马达模块的相关参数
+int i=0;//为了计算指纹识别的次数，以确定门闩开关的逻辑
+
+Adafruit_Fingerprint finger = Adafruit_Fingerprint(&mySerial);
+
+void setup()  
+{
+  Serial.begin(9600);//设置波特率为9600
+  while (!Serial);  
+  delay(100);
+  Serial.println("\n\nAdafruit finger detect test");
+  pinMode(INA, OUTPUT);
+  pinMode(INB, OUTPUT);
+
+  finger.begin(57600);
+  delay(5);
+  if (finger.verifyPassword()) {
+    Serial.println("Found fingerprint sensor!");
+  } else {
+    Serial.println("Did not find fingerprint sensor :(");//串口显示是否识别到了As608模块
+    while (1) { delay(1); }
+  }
+
+  finger.getTemplateCount();
+
+    if (finger.templateCount == 0) {
+    Serial.print("Sensor doesn't contain any fingerprint data. Please run the 'enroll' example.");//如果传感器未储存指纹，请先运行指纹录入程序，将指纹录入
+  } 
+  else {
+    Serial.println("Waiting for valid finger...");
+      Serial.print("Sensor contains "); Serial.print(finger.templateCount); Serial.println(" templates");//准备识别已储存的指纹
+  }
+}
+
+void loop()                    
+{
+  getFingerprintIDez();
+  delay(50);            //不需要全速运行
+}
+
+uint8_t getFingerprintID() {   //相应的命令格式为指纹模块自带的指令格式
+  uint8_t p = finger.getImage();
+  switch (p) {
+    case FINGERPRINT_OK:
+      Serial.println("Image taken");
+      break;
+    case FINGERPRINT_NOFINGER:
+      Serial.println("No finger detected");
+      return p;
+    case FINGERPRINT_PACKETRECIEVEERR:
+      Serial.println("Communication error");
+      return p;
+    case FINGERPRINT_IMAGEFAIL:
+      Serial.println("Imaging error");
+      return p;
+    default:
+      Serial.println("Unknown error");
+      return p;
+  }
+
+  //获取所识别指纹的ID
+
+  p = finger.image2Tz();
+  switch (p) {
+    case FINGERPRINT_OK:
+      Serial.println("Image converted");
+      break;
+    case FINGERPRINT_IMAGEMESS:
+      Serial.println("Image too messy");
+      return p;
+    case FINGERPRINT_PACKETRECIEVEERR:
+      Serial.println("Communication error");
+      return p;
+    case FINGERPRINT_FEATUREFAIL:
+      Serial.println("Could not find fingerprint features");
+      return p;
+    case FINGERPRINT_INVALIDIMAGE:
+      Serial.println("Could not find fingerprint features");
+      return p;
+    default:
+      Serial.println("Unknown error");
+      return p;
+  }
+  //识别感应到的指纹图像
+ 
+  p = finger.fingerFastSearch();
+  if (p == FINGERPRINT_OK) {
+    Serial.println("Found a print match!");
+  } else if (p == FINGERPRINT_PACKETRECIEVEERR) {
+    Serial.println("Communication error");
+    return p;
+  } else if (p == FINGERPRINT_NOTFOUND) {
+    Serial.println("Did not find a match");
+    return p;
+  } else {
+    Serial.println("Unknown error");
+    return p;
+  }   
+  
+  // 在指纹库中寻找指纹图像并进行对比
+  Serial.print("Found ID #"); Serial.print(finger.fingerID); 
+  Serial.print(" with confidence of "); Serial.println(finger.confidence); 
+  
+  return finger.fingerID;
+}
+
+
+int getFingerprintIDez() {
+  uint8_t p = finger.getImage();
+  if (p != FINGERPRINT_OK)  return -1;
+
+  p = finger.image2Tz();
+  if (p != FINGERPRINT_OK)  return -1;
+
+  p = finger.fingerFastSearch();
+  if (p != FINGERPRINT_OK)  return -1;
+  
+  // found a match!
+  Serial.print("Found ID #"); Serial.print(finger.fingerID); 
+  Serial.print(" with confidence of "); Serial.println(finger.confidence);//显示指纹相似程度
+  i++;//时隔这么多行代码终于又出现了i，它是为了记录识别指纹的次数，默认第一次识别指纹时准备开门，则当i为奇数时，马达正向旋转；i为偶数时反向旋转
+    Serial.print("i is ");  Serial.print(i);
+    if(i%2==1)
+    {digitalWrite(INA, LOW);
+    for(int level = START_LEVEL ; level < END_LEVEL+1; level++)//马达正旋
+    {
+        //改写INB的级数
+        analogWrite(INB, level);
+        delay(10);
+    }
+    for(int level = END_LEVEL; level > START_LEVEL ; level--)
+    {
+        //改写INB的级数
+        analogWrite(INB, level);
+        delay(10);
+       
+    } char ch='2';
+  u8g.firstPage();
+  do {
+    setFont_L;
+   
+    u8g.setPrintPos(10,30);
+    u8g.print("welcome");//门锁打开，oled显示：welcome
+   
+  }while (u8g.nextPage());
+      }
+      else{
+        //马达朝着另一个方向旋转，先加速，再减速
+    //INB设置为LOW
+    digitalWrite(INB, LOW);
+    for(int level = START_LEVEL ; level < END_LEVEL+1; level++)
+    {
+        //改写INA的级数
+        analogWrite(INA, level);
+        delay(10);
+    }
+    for(int level = END_LEVEL; level > START_LEVEL ; level--)
+    {
+        //改写INA的级数
+        analogWrite(INA, level);
+        delay(10);
+    }
+     char ch='2';
+  u8g.firstPage();
+  do {
+    setFont_L;
+
+    u8g.setPrintPos(10,30);
+    u8g.print("goodbye");//门锁关闭，oled显示：goodbye
+    
+  }while (u8g.nextPage());}
+    
+  return finger.fingerID; 
+}
